@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { BookmarkPlus } from 'lucide-react';
-import { saveRoute } from '@/services/saved-routes';
 import { RouteResponse } from '@/lib/types';
 
 interface SaveRouteDialogProps {
@@ -24,6 +23,15 @@ export function SaveRouteDialog({ route, origin, destination, onSaved }: SaveRou
   const [description, setDescription] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
+  const [savedRoutes, setSavedRoutes] = useState<any[]>([]);
+
+  // Load saved routes from localStorage on component mount
+  useEffect(() => {
+    const storedRoutes = localStorage.getItem('savedRoutes');
+    if (storedRoutes) {
+      setSavedRoutes(JSON.parse(storedRoutes));
+    }
+  }, []);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -37,22 +45,34 @@ export function SaveRouteDialog({ route, origin, destination, onSaved }: SaveRou
 
     setIsSaving(true);
     try {
-      await saveRoute({
+      // Create a new route object
+      const newRoute = {
+        id: Date.now().toString(),
         name,
         description,
         start: origin,
         goal: destination,
         routeData: route,
-      });
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      // Add to local state
+      const updatedRoutes = [...savedRoutes, newRoute];
+      setSavedRoutes(updatedRoutes);
+      
+      // Save to localStorage
+      localStorage.setItem('savedRoutes', JSON.stringify(updatedRoutes));
 
       toast({
         title: 'Route saved',
-        description: 'Your route has been saved successfully',
+        description: 'Your route has been saved successfully to local storage',
       });
       
       setOpen(false);
       if (onSaved) onSaved();
     } catch (error) {
+      console.error('Error saving route:', error);
       toast({
         title: 'Error',
         description: 'Failed to save route. Please try again.',

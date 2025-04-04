@@ -58,6 +58,8 @@ export async function getSavedRouteById(id: string): Promise<SavedRoute> {
 // Save a new route
 export async function saveRoute(routeData: SaveRouteRequest): Promise<SavedRoute> {
   try {
+    console.log('Sending save route request to API');
+    
     const response = await fetch('/api/routes', {
       method: 'POST',
       headers: {
@@ -66,13 +68,17 @@ export async function saveRoute(routeData: SaveRouteRequest): Promise<SavedRoute
       body: JSON.stringify(routeData),
     });
     
+    console.log('API response status:', response.status);
+    
+    const responseData = await response.json();
+    console.log('API response data:', responseData);
+    
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const errorMessage = errorData.error || response.statusText || 'Unknown error';
+      const errorMessage = responseData.error || response.statusText || 'Unknown error';
       throw new Error(`Failed to save route: ${errorMessage}`);
     }
     
-    return await response.json();
+    return responseData;
   } catch (error) {
     console.error('Error saving route:', error);
     throw error;

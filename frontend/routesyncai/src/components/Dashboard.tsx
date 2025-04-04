@@ -84,6 +84,7 @@ interface CurrencyRate {
 interface WeatherForecast {
   day: string;
   condition: string;
+  emoji: string;
   temperature: number;
   precipitation: number;
 }
@@ -228,43 +229,72 @@ const useWeather = () => {
   const [weather, setWeather] = useState<WeatherForecast[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Major shipping ports to get weather for
+  // We'll pick one as the default to display
+  const shippingPorts = [
+    "Rotterdam,nl", // Netherlands - Europe's largest port
+    "Shanghai,cn",  // China - World's busiest container port
+    "Singapore,sg", // Singapore - Major shipping hub
+    "Los Angeles,us", // USA - Major west coast port
+    "Dubai,ae"      // UAE - Major Middle Eastern port
+  ];
+  
+  const [selectedPort, setSelectedPort] = useState(shippingPorts[0]);
 
   useEffect(() => {
     const fetchWeather = async () => {
       try {
-        const weatherApiKey = process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY;
-        if (!weatherApiKey) throw new Error("Weather API key is missing");
-
+        // Use a free weather API that doesn't require API key
         const response = await fetch(
-          `https://api.openweathermap.org/data/2.5/forecast?q=London&appid=${weatherApiKey}`
+          `https://api.open-meteo.com/v1/forecast?latitude=51.9244&longitude=4.4777&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7`
         );
         if (!response.ok) throw new Error("Failed to fetch weather");
         const data = await response.json();
 
-        const dailyForecasts = data.list
-          .filter((_: WeatherItem, index: number) => index % 8 === 0) // Get one forecast per day
-          .map((item: WeatherItem) => ({
-            day: new Date(item.dt_txt).toLocaleDateString("en-US", {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
+        // Map the API response to the WeatherForecast interface
+        const dailyForecasts = data.daily.time.map((time: string, index: number) => {
+          const date = new Date(time);
+          const weatherCode = data.daily.weathercode[index];
+          
+          // Convert weather code to condition text and emoji
+          const { condition, emoji } = getWeatherCondition(weatherCode);
+          
+          return {
+            day: date.toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
             }),
-            condition: item.weather[0].main,
-            temperature: kelvinToCelsius(item.main.temp),
-            precipitation: Math.round(item.pop * 100),
-          }));
-
-        setWeather(dailyForecasts);
+            condition: condition,
+            emoji: emoji,
+            temperature: Math.round((data.daily.temperature_2m_max[index] + data.daily.temperature_2m_min[index]) / 2),
+            precipitation: data.daily.precipitation_probability_max[index],
+          };
+        });
+        
+        // Limit to 5 days
+        setWeather(dailyForecasts.slice(0, 5));
       } catch (err) {
-        setError("Failed to load weather");
+        console.error("Error fetching weather:", err);
+        // Fallback to mock data if API fails
+        setWeather([
+          { day: "Mon", condition: "Sunny", emoji: "☀️", temperature: 28, precipitation: 0 },
+          { day: "Tue", condition: "Cloudy", emoji: "☁️", temperature: 24, precipitation: 20 },
+          { day: "Wed", condition: "Rain", emoji: "🌧️", temperature: 22, precipitation: 80 },
+          { day: "Thu", condition: "Cloudy", emoji: "☁️", temperature: 23, precipitation: 30 },
+          { day: "Fri", condition: "Sunny", emoji: "☀️", temperature: 26, precipitation: 10 },
+        ]);
+        setError("Failed to load weather. Showing sample data.");
       } finally {
         setLoading(false);
       }
     };
+    
     fetchWeather();
-  }, []);
+  }, [selectedPort]);
 
-  return { weather, loading, error };
+  return { weather, loading, error, selectedPort, setSelectedPort, shippingPorts };
 };
 
 // Helper functions
@@ -346,6 +376,26 @@ const riskAlerts = [
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8"];
 
+// Helper function to convert weather codes to conditions and emojis
+const getWeatherCondition = (code: number) => {
+  // WMO Weather interpretation codes (WW)
+  // https://open-meteo.com/en/docs
+  if (code === 0) return { condition: "Clear sky", emoji: "☀️" };
+  if (code === 1) return { condition: "Mainly clear", emoji: "🌤️" };
+  if (code === 2) return { condition: "Partly cloudy", emoji: "⛅" };
+  if (code === 3) return { condition: "Overcast", emoji: "☁️" };
+  if (code >= 45 && code <= 48) return { condition: "Fog", emoji: "🌫️" };
+  if (code >= 51 && code <= 55) return { condition: "Drizzle", emoji: "🌦️" };
+  if (code >= 56 && code <= 57) return { condition: "Freezing Drizzle", emoji: "❄️" };
+  if (code >= 61 && code <= 65) return { condition: "Rain", emoji: "🌧️" };
+  if (code >= 66 && code <= 67) return { condition: "Freezing Rain", emoji: "🌨️" };
+  if (code >= 71 && code <= 77) return { condition: "Snow", emoji: "❄️" };
+  if (code >= 80 && code <= 82) return { condition: "Rain showers", emoji: "🌦️" };
+  if (code >= 85 && code <= 86) return { condition: "Snow showers", emoji: "🌨️" };
+  if (code >= 95 && code <= 99) return { condition: "Thunderstorm", emoji: "⛈️" };
+  return { condition: "Unknown", emoji: "❓" };
+};
+
 // Dashboard Component
 const Dashboard = () => {
   const {
@@ -367,6 +417,9 @@ const Dashboard = () => {
     weather,
     loading: weatherLoading,
     error: weatherError,
+    selectedPort,
+    setSelectedPort,
+    shippingPorts,
   } = useWeather();
 
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
@@ -445,7 +498,33 @@ const Dashboard = () => {
     if (severity >= 0.7) return "high";
     if (severity >= 0.4) return "medium";
     return "low";
-  }
+  };
+
+  useEffect(() => {
+    // Add CSS animation for pie chart tooltips
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(5px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      
+      .recharts-pie-sector:hover {
+        transform: scale(1.03);
+        transition: transform 0.3s ease;
+        cursor: pointer;
+      }
+      
+      .recharts-pie {
+        filter: drop-shadow(0 10px 15px rgba(0, 0, 0, 0.2));
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
 
   if (
     shipmentsLoading ||
@@ -626,15 +705,51 @@ const Dashboard = () => {
                           outerRadius={100}
                           fill="#8884d8"
                           dataKey="value"
+                          animationBegin={0}
+                          animationDuration={1500}
+                          animationEasing="ease-out"
+                          isAnimationActive={true}
+                          startAngle={90}
+                          endAngle={-270}
+                          paddingAngle={2}
+                          onMouseEnter={(data, index) => {
+                            // Additional hover effect can be handled here if needed
+                          }}
                         >
                           {priorityData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={COLORS[index % COLORS.length]} 
+                              className="transition-opacity duration-300 hover:opacity-90"
+                              style={{ filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.2))" }} 
+                            />
                           ))}
                         </Pie>
                         <Tooltip 
-                          contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff' }}
+                          contentStyle={{ 
+                            backgroundColor: '#1e293b', 
+                            borderColor: '#334155', 
+                            color: '#fff',
+                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
+                            borderRadius: '0.5rem',
+                            animation: 'fadeIn 0.2s ease-in-out'
+                          }}
+                          cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }}
+                          formatter={(value, name, props) => [
+                            `<span class="font-bold">${value}</span>`, 
+                            `<span class="text-sky-300">${name}</span>`
+                          ]}
+                          animationDuration={300}
+                          animationEasing="ease-out"
                         />
-                        <Legend />
+                        <Legend 
+                          layout="horizontal" 
+                          verticalAlign="bottom" 
+                          align="center"
+                          wrapperStyle={{
+                            paddingTop: "20px",
+                          }}
+                        />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -674,37 +789,62 @@ const Dashboard = () => {
 
               <Card className="bg-slate-800 border-slate-700">
                 <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <div>
                   <CardTitle className="text-sky-400">Weather Forecast</CardTitle>
                   <CardDescription className="text-slate-400">
-                    5-day forecast for major shipping routes
+                        5-day forecast for shipping routes
                   </CardDescription>
+                    </div>
+                    <select 
+                      value={selectedPort}
+                      onChange={(e) => setSelectedPort(e.target.value)}
+                      className="bg-slate-700 border border-slate-600 text-white rounded-md px-3 py-1.5 text-sm"
+                    >
+                      {shippingPorts.map((port) => (
+                        <option key={port} value={port}>
+                          {port.split(',')[0]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </CardHeader>
                 <CardContent>
+                  {weatherLoading ? (
+                    <div className="flex justify-center p-8">
+                      <RefreshCw className="h-8 w-8 text-sky-400 animate-spin" />
+                    </div>
+                  ) : weatherError ? (
+                    <div className="bg-red-900/20 text-red-300 p-4 rounded-lg">
+                      {weatherError}
+                    </div>
+                  ) : (
+                    <>
                   <div className="grid grid-cols-5 gap-2">
-                    {weatherData.map((item) => (
+                        {weather.map((item) => (
                       <div key={item.day} className="text-center">
                         <p className="font-medium text-white">{item.day}</p>
                         <div className="my-2 w-full aspect-square bg-slate-700/50 rounded-lg flex items-center justify-center">
                           <p className="text-2xl">
-                            {item.condition === "Sunny" ? "☀️" : 
-                             item.condition === "Cloudy" ? "☁️" : 
-                             item.condition === "Rain" ? "🌧️" : "❓"}
+                                {item.emoji}
                           </p>
                         </div>
+                            <p className="text-xs text-slate-400 mb-1">{item.condition}</p>
                         <p className="text-sm text-white">{item.temperature}°C</p>
-                        <p className="text-xs text-slate-400">{item.precipitation}%</p>
+                            <p className="text-xs text-slate-400">{item.precipitation}% rain</p>
                       </div>
                     ))}
                   </div>
 
                   <div className="mt-4 h-40">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={weatherData}>
+                          <AreaChart data={weather}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                         <XAxis dataKey="day" stroke="#94a3b8" />
                         <YAxis stroke="#94a3b8" />
                         <Tooltip 
                           contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff' }}
+                          cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }}
                         />
                         <Area 
                           type="monotone" 
@@ -715,6 +855,8 @@ const Dashboard = () => {
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -788,19 +930,55 @@ const Dashboard = () => {
                           outerRadius={100}
                           fill="#8884d8"
                           dataKey="value"
+                          animationBegin={0}
+                          animationDuration={1500}
+                          animationEasing="ease-in-out"
+                          isAnimationActive={true}
+                          startAngle={90}
+                          endAngle={-270}
+                          paddingAngle={2}
+                          onMouseEnter={(data, index) => {
+                            // Additional hover effect can be handled here if needed
+                          }}
                         >
                           {transportModeData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={
-                              index === 0 ? "#3b82f6" : // Air - blue
-                              index === 1 ? "#14b8a6" : // Sea - teal
-                              "#f59e0b"                 // Land - amber
-                            } />
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={
+                                index === 0 ? "#3b82f6" : // Air - blue
+                                index === 1 ? "#14b8a6" : // Sea - teal
+                                "#f59e0b"                 // Land - amber
+                              } 
+                              className="transition-opacity duration-300 hover:opacity-90"
+                              style={{ filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.2))" }}
+                            />
                           ))}
                         </Pie>
                         <Tooltip 
-                          contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', color: '#fff' }}
+                          contentStyle={{ 
+                            backgroundColor: '#1e293b', 
+                            borderColor: '#334155', 
+                            color: '#fff',
+                            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
+                            borderRadius: '0.5rem',
+                            animation: 'fadeIn 0.2s ease-in-out'
+                          }}
+                          cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }}
+                          formatter={(value, name, props) => [
+                            `<span class="font-bold">${value}</span>`, 
+                            `<span class="text-sky-300">${name}</span>`
+                          ]}
+                          animationDuration={300}
+                          animationEasing="ease-out"
                         />
-                        <Legend />
+                        <Legend 
+                          layout="horizontal" 
+                          verticalAlign="bottom" 
+                          align="center"
+                          wrapperStyle={{
+                            paddingTop: "20px",
+                          }}
+                        />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>

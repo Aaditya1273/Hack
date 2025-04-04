@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, Box, Navigation } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RouteMap } from "@/components/route-map";
@@ -26,7 +27,11 @@ const TRANSPORT_MODES = [
 ];
 
 export default function Home() {
-  const [formData, setFormData] = useState({
+  const searchParams = useSearchParams();
+  const { toast } = useToast();
+  
+  // Default form data
+  const defaultFormData = {
     start: "",
     goal: "",
     avoid_countries: [] as string[],
@@ -39,13 +44,80 @@ export default function Home() {
     description: "",
     cargo_type: "general",
     weight: 0,
-  });
-
+  };
+  
+  const [formData, setFormData] = useState(defaultFormData);
   const [countryInput, setCountryInput] = useState("");
   const [routes, setRoutes] = useState<RouteResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<number>(0);
+  const [autoSubmit, setAutoSubmit] = useState(false);
+
+  // Effect to load URL parameters into the form
+  useEffect(() => {
+    if (!searchParams) return;
+    
+    // Get values from URL query parameters
+    const start = searchParams.get('start');
+    const goal = searchParams.get('goal');
+    const description = searchParams.get('description');
+    const avoidCountries = searchParams.get('avoidCountries');
+    const modes = searchParams.get('modes');
+    
+    // If we have required fields (at least start and goal), update the form
+    if (start && goal) {
+      // Parse avoid countries if present
+      const avoidCountriesArray = avoidCountries 
+        ? avoidCountries.split(',').filter(Boolean)
+        : [];
+      
+      // Parse allowed modes if present
+      let allowedModes = ["land", "sea", "air"]; // default
+      if (modes) {
+        // Convert to lowercase and filter valid modes
+        const requestedModes = modes.split(',')
+          .map(m => m.toLowerCase())
+          .filter(m => ["land", "sea", "air"].includes(m));
+        
+        if (requestedModes.length > 0) {
+          allowedModes = requestedModes;
+        }
+      }
+      
+      // Update form data
+      setFormData(prev => ({
+        ...prev,
+        start: start,
+        goal: goal,
+        description: description || '',
+        avoid_countries: avoidCountriesArray,
+        allowed_modes: allowedModes,
+      }));
+      
+      // Set auto-submit flag to true to automatically search for routes
+      setAutoSubmit(true);
+      
+      // Show a toast to inform the user
+      toast({
+        title: 'Route details loaded',
+        description: 'The form has been filled with saved route details',
+      });
+    }
+  }, [searchParams, toast]);
+  
+  // Effect to auto-submit the form if needed
+  useEffect(() => {
+    if (autoSubmit && formData.start && formData.goal) {
+      // Create a timeout to allow the form to render first
+      const timer = setTimeout(() => {
+        handleSubmit(new Event('submit') as any);
+        setAutoSubmit(false);
+      }, 500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [autoSubmit, formData]);
 
   const handleModeChange = (mode: string) => {
     setFormData(prev => ({
@@ -217,55 +289,66 @@ export default function Home() {
                   />
                 </div>
 
-                <div className="space-y-4">
-                  <label className="block text-sm font-medium text-sky-300">Transportation Modes</label>
-                  <div className="flex flex-wrap gap-6">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-sky-300">Transport Modes</label>
+                  <div className="flex flex-wrap gap-3">
                     {TRANSPORT_MODES.map((mode) => (
-                      <label key={mode.value} className="relative flex items-center space-x-3 cursor-pointer group">
-                        <input
-                          type="checkbox"
-                          checked={formData.allowed_modes.includes(mode.value)}
-                          onChange={() => handleModeChange(mode.value)}
-                          className="w-5 h-5 border-2 border-sky-500/30 rounded bg-white/5 text-sky-500 focus:ring-2 focus:ring-sky-500/20 transition-colors"
-                        />
-                        <span className="text-sm font-medium group-hover:text-sky-400 transition-colors">{mode.label}</span>
-                      </label>
+                      <button
+                        key={mode.value}
+                        type="button"
+                        onClick={() => handleModeChange(mode.value)}
+                        className={`px-4 py-2 rounded-lg border transition-all ${
+                          formData.allowed_modes.includes(mode.value)
+                            ? "bg-sky-500/20 border-sky-500 text-sky-300"
+                            : "bg-slate-800/50 border-slate-600 text-slate-400 hover:border-slate-500"
+                        }`}
+                      >
+                        {mode.label}
+                      </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <label className="block text-sm font-medium text-sky-300">Countries to Avoid</label>
-                  <div className="flex gap-3">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-sky-300">
+                    Avoided Countries{" "}
+                    <span className="text-xs text-slate-400">
+                      (Optional)
+                    </span>
+                  </label>
+                  <div className="flex gap-2">
                     <input
                       type="text"
                       value={countryInput}
-                      onChange={(e) => setCountryInput(e.target.value.slice(0, 2))}
-                      placeholder="ISO-2 code (e.g., US)"
+                      onChange={(e) => setCountryInput(e.target.value)}
                       className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/30 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 transition-all duration-200"
-                      maxLength={2}
+                      placeholder="Enter country code"
                     />
                     <button
                       type="button"
                       onClick={handleAddCountry}
-                      className="px-6 py-3 bg-gradient-to-r from-sky-500 to-blue-600 rounded-xl font-medium hover:from-sky-600 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-sky-500/25"
+                      className="px-4 py-3 bg-sky-600 hover:bg-sky-700 rounded-xl text-white transition-all duration-200"
                     >
                       Add
                     </button>
                   </div>
+                  
                   {formData.avoid_countries.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {formData.avoid_countries.map((country) => (
-                        <div key={country} className="bg-white/10 px-4 py-2 rounded-lg flex items-center space-x-2 group">
-                          <span>{country}</span>
+                        <span
+                          key={country}
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-red-900/20 text-red-300 border border-red-500/40 rounded-full text-xs"
+                        >
+                          {country}
                           <button
                             type="button"
                             onClick={() => handleRemoveCountry(country)}
-                            className="text-red-400 hover:text-red-300 transition-colors"
+                            className="hover:text-white"
                           >
-                            ×
+                            ✕
                           </button>
-                        </div>
+                        </span>
                       ))}
                     </div>
                   )}

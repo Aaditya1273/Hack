@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Shipment {
@@ -107,8 +107,7 @@ model SavedRoute {
   id          String   @id @default(uuid())
   name        String
   description String?
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  userId      String   // This will store the Clerk user ID instead of a reference
   start       String
   goal        String
   routeData   String   // Stores the complete route response as JSON string
