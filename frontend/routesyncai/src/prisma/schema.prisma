@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Shipment {
+  id           String   @id @default(uuid())
+  origin       String // City, Airport, Port Name
+  destination  String // City, Airport, Port Name
+  cargo_weight Float // Weight in kg/tons
+  cargo_volume Float // Volume in cubic meters
+  priority     Priority // FASTEST, CHEAPEST, SAFEST
+  createdAt    DateTime @default(now())
+  status       Status // PENDING, IN_TRANSIT, DELIVERED
+  userId       String // Links to User
+  user         User     @relation(fields: [userId], references: [id])
+
+  routes Route[] @relation("ShipmentRoutes")
+}
+
+enum Priority {
+  FASTEST
+  CHEAPEST
+  SAFEST
+}
+
+enum Status {
+  PENDING
+  IN_TRANSIT
+  DELIVERED
+}
+
+model Route {
+  id            String   @id @default(uuid())
+  shipmentId    String
+  shipment      Shipment @relation(fields: [shipmentId], references: [id], name: "ShipmentRoutes")
+  total_cost    Float // Sum of all segment costs
+  total_time    Float // Sum of all segment times (hours)
+  risk_score    Float // Calculated risk factor from GDELT & GDACS
+  emission      Float // Estimated carbon footprint
+  mode_sequence String // "Land-Air-Sea", "Sea-Land", etc.
+  createdAt     DateTime @default(now())
+
+  segments Segment[] @relation("RouteSegments")
+}
+
+model Segment {
+  id               String   @id @default(uuid())
+  routeId          String
+  route            Route    @relation(fields: [routeId], references: [id], name: "RouteSegments")
+  mode             Mode // LAND, AIR, SEA
+  from_location    String // City/Port/Airport Code
+  to_location      String // City/Port/Airport Code
+  cost             Float // Cost for this segment
+  time             Float // Time (in hours)
+  border_crossings String[] // Array of countries crossed
+  start_time       DateTime // When this segment begins
+  end_time         DateTime // When this segment ends
+  createdAt        DateTime @default(now())
+}
+
+
+enum Mode {
+  LAND
+  AIR
+  SEA
+}
+
+model RiskEvent {
+  id         String    @id @default(uuid())
+  type       RiskType // CONFLICT, DISASTER, SANCTION
+  location   String // Affected city/country
+  severity   Float // Scaled from 0 to 1 (higher = riskier)
+  start_time DateTime
+  end_time   DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+enum RiskType {
+  CONFLICT
+  DISASTER
+  SANCTION
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role // ADMIN, LOGISTICS_PROVIDER, CLIENT
+  createdAt DateTime @default(now())
+
+  shipments   Shipment[]
+  savedRoutes SavedRoute[]
+}
+
+enum Role {
+  ADMIN
+  LOGISTICS_PROVIDER
+  CLIENT
+}
+
+model SavedRoute {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  start       String
+  goal        String
+  routeData   Json     // Stores the complete route response
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
